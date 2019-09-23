@@ -1,0 +1,116 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Victor Coelho"
+date: "20 September 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##Background
+How well they do it a particular activity? This project have goals to determine by prediction the manner in which they did the exercise. Using Cross validation, what is the expected sample error is, and explain the choices to perform this report.
+
+1. Data, Environment setup
+
+```{r data, echo=TRUE}
+#Load the packages that will be required to run this prediction
+
+library(knitr)
+library(caret)
+library(rpart)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(dplyr)
+library(gbm)
+
+#Download dataset
+UrlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+UrlTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+FileTrain <- "pml-training.csv"
+FileTest <- "pml-testing.csv"
+#Add dataset into environment, clearing variables that won't be necessary 
+Train <- read.csv(url(UrlTrain), na.strings=c("NA","#DIV/0!",""))
+Test <- read.csv(url(UrlTest), na.strings=c("NA", "#DIV/0!",""))
+dim(Train)
+dim(Test)
+#Clear blank values, and unused columns
+Traindata <- Train[,colSums(is.na(Train)) == 0]
+Testdata <- Test[,colSums(is.na(Test)) == 0]
+set.seed(555)
+Traindata <- Traindata [,-c(1:7)]
+Testdata <- Testdata[,-c(1:7)]
+#Removed user_name, raw_timestamp12, cvtd_timestamp and new_window, num_window due no correlation to the prediction model and the future subsequent cases it will predict.  
+dim(Traindata)
+dim(Testdata)
+
+```
+2. Dataset Partition
+```{r part, echo=TRUE}
+trainpart <- createDataPartition(Traindata$classe, p=0.7, list=FALSE)
+trnset <- Traindata[trainpart,]
+tstset <- Traindata[-trainpart,]
+dim(trnset)
+```
+3. Dataset Frequency
+```{r x5, echo=TRUE}
+plot(trnset$classe, col="blue", main="Frequency", xlab="classe", ylab="Frequency")
+```
+The frequency distribution, shows that the values have close range between the classes. A have the most frequency and D the least.
+#Correlation between variables 
+```{r x, echo=TRUE}
+corset <- cor(trnset[,-53])
+corrplot(corset, order = "FPC", method = "color", type = "lower", tl.cex=0.7, tl.col = rgb(0, 0, 0))
+```
+As you can see at the plot above, the dark colors are variables that have strong correlation for both sides (-1/+1).
+for this prediction we won't be using the correlation in processing data for the forecast.
+
+##Cross-Validation configuration
+Although the value of k could be considered lower, increasing the bias and being undesirable it was the ideal to not take too long on perfoming the predict models below, like random forest and generalized boosted model with k=20 was taking too long to give a result.
+```{r rib, echo=TRUE}
+classcontrol <- trainControl(method="cv", number=5, repeats=1)
+metric="Accuracy"
+```
+
+
+##Set Prediction Models with train dataset
+```{r ribs, echo=TRUE}
+#Linear Algorithm
+set.seed(10)
+setlda <- train(classe~., data=trnset, method="lda", metric=metric, trControl=classcontrol)
+set.seed(10)
+setknn <- train(classe~., data=trnset, method="knn", metric=metric, trControl=classcontrol)
+set.seed(10)
+setrft <- train(classe~., data=trnset, method="rf", metric=metric, trControl=classcontrol)
+set.seed(10)
+setgbm <- train(classe~., data=trnset, method="gbm", metric=metric, trControl=classcontrol, verbose=FALSE)
+results <- resamples(list(lda=setlda, knn=setknn, gbm=setgbm, rf= setrft))
+```
+After setting the prediction models we will use, now we will run it with the sample data we separate at the begin from the training dataset and define which prediction model suits best to forecast the Test dataset.
+
+#Run prediction Model with testset from traindataset
+```{r x3, echo=FALSE}
+plda<- predict(setlda, newdata=tstset)
+xlda<- confusionMatrix(plda, tstset$classe)
+pknn <- predict(setknn, newdata=tstset)
+xknn <- confusionMatrix(pknn, tstset$classe)
+pgbm<- predict(setgbm, newdata=tstset)
+xgbm <- confusionMatrix(pgbm, tstset$classe)
+prf <- predict(setrft, newdata=tstset)
+xrf <- confusionMatrix(prf, tstset$classe)
+Prediction <- matrix(round(c(xlda$overall, xknn$overall, xgbm$overall, xrf$overall), 3), ncol=4)
+colnames(Prediction)<- c('lda', 'knn','gbm','rf')
+Table <- as.table(Prediction)
+print(Table)
+```
+The overall with highest values or the most accurate is the random forest model. It will be the model used to perform the prediction with the testdata
+#Prediction of TestData
+```{r x1, echo=FALSE}
+testprediction <- predict(setrft, Testdata)
+testprediction
+```
+This results is the answer to be used on the 20cases quizz after project build.
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
